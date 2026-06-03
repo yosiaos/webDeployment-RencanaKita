@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import base64 
+from pathlib import Path
+import base64
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="RencanaKita", layout="wide", initial_sidebar_state="collapsed")
@@ -152,13 +153,15 @@ def landing_page():
             # Konversi video ke base64
             import base64
             
-            def get_base64_video(path):
-                with open(path, "rb") as file:
-                    video_bytes = file.read()
-                return base64.b64encode(video_bytes).decode()
+            def get_base64_video():
+                current_dir = Path(__file__).parent
+                video_path = current_dir / "Logo" / "logo.mp4"
+
+                with open(video_path, "rb") as file:
+                    return base64.b64encode(file.read()).decode()
 
             # Panggil fungsi ini (pastikan path ke logo.mp4 benar)
-            video_base64 = get_base64_video("Logo/logo.mp4")
+            video_base64 = get_base64_video()
             
             # HTML Video tanpa kontrol sama sekali
             video_html = f"""
