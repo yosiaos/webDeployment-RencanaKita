@@ -17,7 +17,7 @@ st.set_page_config(page_title="RencanaKita", layout="wide", initial_sidebar_stat
 
 # --- DEFINISI BASE DIRECTORY UTAMA ---
 # Mengunci root path agar selalu relatif terhadap lokasi app.py ini
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 
 # ==========================================
 # CORE ENGINE: CLASS & UTILITIES GLOBAL
