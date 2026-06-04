@@ -1032,10 +1032,48 @@ def forecast_page():
     
     # Simulasi prediksi harga (Random Walk / Dummy Model menggunakan keseluruhan data)
     # NANTI GANTI BARIS INI: y_fore = forecast_90_results[ticker_name]
-    np.random.seed(42)
-    mean_ret = hist_df['Return'].mean()
-    std_ret = hist_df['Return'].std()
-    simulated_returns = np.random.normal(loc=mean_ret, scale=std_ret, size=90)
+    model_path = BASE_DIR / "Model" / f"{ticker_name}_best_model.pkl"
+
+    if not model_path.exists():
+
+        st.error(f"Model tidak ditemukan: {model_path}")
+        return
+
+    model = joblib.load(model_path)
+
+    forecast_df = df_eng.copy()
+
+    future_prices = []
+
+    for _ in range(90):
+
+        latest_row = forecast_df.iloc[-1:]
+
+        feature_cols = model.feature_names_in_
+        X = latest_row[feature_cols]
+
+        pred_price = model.predict(X)[0]
+
+        future_prices.append(pred_price)
+
+        next_row = latest_row.copy()
+
+        next_row["Close"] = pred_price
+
+        next_row["Date"] = (
+            latest_row["Date"].iloc[0]
+            + pd.Timedelta(days=1)
+        )
+
+        forecast_df = pd.concat(
+            [forecast_df, next_row],
+            ignore_index=True
+        )
+
+        forecast_df = feature_engineering(
+            forecast_df,
+            is_emas=(ticker_name=="EMAS")
+        )
     
     future_prices = [last_price * (1 + simulated_returns[0])]
     for r in simulated_returns[1:]:
@@ -1172,86 +1210,120 @@ class RoboAdvisorEngine:
         }
 
     def _generate_market_data(self):
-        """
-        Membaca data historis dari pelbagai CSV, menghitung return, 
-        dan membuat matriks kovarians Ledoit-Wolf.
-        """
+
         try:
-            # ==========================================
-            # 1. PROSES DATA SAHAM 
-            # ==========================================
+
+            data_dir = BASE_DIR / "Data"
+
             file_mapping = {
-                'ADRO': 'ADRO_clean.csv', 'ANTM': 'ANTM_clean.csv', 'ASII': 'ASII_clean.csv',
-                'BBCA': 'bbca_clean.csv', 'BBNI': 'bbni_clean.csv', 'BBRI': 'bbri_clean.csv',
-                'BMRI': 'bmri_clean.csv', 'CUAN': 'CUAN_clean.csv', 'ICBP': 'icbp_clean.csv',
-                'INCO': 'INCO_clean.csv', 'ISAT': 'ISAT_clean.csv', 'MEDC': 'MEDC_clean.csv',
-                'MYOR': 'myor_clean.csv', 'PTBA': 'PTBA_clean.csv', 'TLKM': 'tlkm_clean.csv' 
+                'ADRO': 'ADRO_clean.csv',
+                'ANTM': 'ANTM_clean.csv',
+                'ASII': 'ASII_clean.csv',
+                'BBCA': 'bbca_clean.csv',
+                'BBNI': 'bbni_clean.csv',
+                'BBRI': 'bbri_clean.csv',
+                'BMRI': 'bmri_clean.csv',
+                'CUAN': 'CUAN_clean.csv',
+                'ICBP': 'icbp_clean.csv',
+                'INCO': 'INCO_clean.csv',
+                'ISAT': 'ISAT_clean.csv',
+                'MEDC': 'MEDC_clean.csv',
+                'MYOR': 'myor_clean.csv',
+                'PTBA': 'PTBA_clean.csv',
+                'TLKM': 'tlkm_clean.csv'
             }
-            # MENGGUNAKAN BASE_DIR UNTUK MENGUNCI LOKASI FOLDER DATA
-            saham_files = [BASE_DIR / "Data" / fname for fname in file_mapping.values()]
-            
-            list_return_saham = []
-            
-            for file in saham_files:
-                df = pd.read_csv(file)
-                # Paksa semua header menjadi huruf besar (CAPSLOCK) supaya seragam
-                df.columns = df.columns.str.upper() 
-                # Pastikan kolom DATE jadi datetime dan set sebagai index
-                df['DATE'] = pd.to_datetime(df['DATE'])
-                df = df.set_index('DATE')
-                # Kira peratusan perubahan harian (return) dari harga CLOSE
-                ret = df['CLOSE'].pct_change()
-                list_return_saham.append(ret)
-                
-            # Gabungkan semua saham bersebelahan antara satu sama lain
-            df_saham_all = pd.concat(list_return_saham, axis=1)
-            # Cari purata (mean) merentas lajur untuk dapatkan 1 nilai wakil saham setiap hari
-            return_saham = df_saham_all.mean(axis=1)
-            return_saham.name = 'Saham'
 
-            # ==========================================
-            # 2. PROSES DATA EMAS 
-            # ==========================================
-            df_emas = pd.read_csv(BASE_DIR / "Data" / 'EMAS_clean.csv') # MENGGUNAKAN BASE_DIR
-            df_emas.columns = df_emas.columns.str.upper()
-            df_emas['DATE'] = pd.to_datetime(df_emas['DATE'])
-            df_emas = df_emas.set_index('DATE')
-            
-            return_emas = df_emas['CLOSE'].pct_change()
-            return_emas.name = 'Emas'
+            stock_returns = []
 
-            # ==========================================
-            # 3. GABUNGKAN SAHAM & EMAS (Inner Join by Date)
-            # ==========================================
-            df_returns = pd.concat([return_saham, return_emas], axis=1).dropna()
+            for _, fname in file_mapping.items():
 
-            # ==========================================
-            # 4. TAMBAHKAN INSTRUMEN FIXED INCOME (Pendapatan Tetap)
-            # ==========================================
+                file_path = data_dir / fname
+
+                if not file_path.exists():
+                    continue
+
+                df = pd.read_csv(file_path)
+
+                df.columns = [c.upper() for c in df.columns]
+
+                df["DATE"] = pd.to_datetime(df["DATE"])
+
+                ret = df["CLOSE"].pct_change()
+
+                stock_returns.append(ret)
+
+            if len(stock_returns) == 0:
+                raise Exception("Tidak ada file saham yang berhasil dibaca")
+
+            df_stock = pd.concat(stock_returns, axis=1)
+
+            return_saham = df_stock.mean(axis=1)
+            return_saham.name = "Saham"
+
+            emas_path = data_dir / "EMAS_clean.csv"
+
+            if emas_path.exists():
+
+                df_emas = pd.read_csv(emas_path)
+
+                df_emas.columns = [c.upper() for c in df_emas.columns]
+
+                df_emas["DATE"] = pd.to_datetime(df_emas["DATE"])
+
+                return_emas = df_emas["CLOSE"].pct_change()
+
+                return_emas.name = "Emas"
+
+            else:
+
+                return_emas = pd.Series(
+                    np.random.normal(0.08/252,0.01,len(return_saham)),
+                    index=return_saham.index,
+                    name="Emas"
+                )
+
+            df_returns = pd.concat(
+                [return_saham, return_emas],
+                axis=1
+            ).dropna()
+
             n_days = len(df_returns)
-            np.random.seed(42)
-            
-            # Asumsi pulangan tahunan: Obligasi 7%, RDPU 5%, Deposito 4%
-            df_returns['Obligasi'] = np.random.normal((0.07/252), 0.001, n_days) 
-            df_returns['RDPU'] = 0.05 / 252      
-            df_returns['Deposito'] = 0.04 / 252  
-            
-            # Susun ikut turutan
-            df_returns = df_returns[['Saham', 'Emas', 'Obligasi', 'RDPU', 'Deposito']]
 
-            # ==========================================
-            # 5. KALKULASI LEDOIT-WOLF
-            # ==========================================
+            df_returns["Obligasi"] = np.random.normal(
+                0.07/252,
+                0.001,
+                n_days
+            )
+
+            df_returns["RDPU"] = 0.05/252
+
+            df_returns["Deposito"] = 0.04/252
+
+            df_returns = df_returns[
+                ["Saham","Emas","Obligasi","RDPU","Deposito"]
+            ]
+
             lw = LedoitWolf()
+
             lw.fit(df_returns)
+
             self.cov_matrix_annual = lw.covariance_ * 252
-            
-            expected_returns = df_returns.mean().values * 252
-            return expected_returns
-            
+
+            return df_returns.mean().values * 252
+
         except Exception as e:
-            st.error(f"Error saat memproses data pasar: {e}\nPastikan folder Data/ lengkap.")
-            return np.array([0.12, 0.08, 0.07, 0.05, 0.04])
+
+            st.error(f"Error Market Data: {e}")
+
+            self.cov_matrix_annual = np.eye(5) * 0.05
+
+            return np.array([
+                0.12,
+                0.08,
+                0.07,
+                0.05,
+                0.04
+            ])
 
     def _markowitz_objective(self, weights, risk_aversion, gamma=0.05):
         """
@@ -1295,7 +1367,13 @@ class RoboAdvisorEngine:
             bounds=bounds, 
             constraints=constraints
         )
-        weights = optimized.x
+        if not optimized.success:
+
+            weights = init_guess
+
+        else:
+
+            weights = optimized.x
         
         exp_return = np.sum(self.expected_returns_annual * weights)
         exp_risk = np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix_annual, weights)))
