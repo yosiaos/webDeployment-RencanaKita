@@ -19,6 +19,24 @@ st.set_page_config(page_title="RencanaKita", layout="wide", initial_sidebar_stat
 # Mengunci root path agar selalu relatif terhadap lokasi app.py ini
 BASE_DIR = Path(__file__).resolve().parent
 
+# --- DIREKTORI DEPLOYMENT ---
+DATA_DIR = BASE_DIR / "Data"
+MODEL_DIR = BASE_DIR / "Model"
+LOGO_DIR = BASE_DIR / "Logo"
+
+
+def get_path(folder, filename):
+    """Ambil path file secara aman untuk lokal dan Streamlit Cloud."""
+    path = BASE_DIR / folder / filename
+    if path.exists():
+        return path
+
+    fallback_path = BASE_DIR.parent / folder / filename
+    if fallback_path.exists():
+        return fallback_path
+
+    return path
+
 # ==========================================
 # CORE ENGINE: CLASS & UTILITIES GLOBAL
 # ==========================================
@@ -74,6 +92,7 @@ def load_stock_data(ticker):
         'BBRI': 'bbri_clean.csv',
         'BMRI': 'bmri_clean.csv',
         'CUAN': 'CUAN_clean.csv',
+        'EMAS': 'EMAS_clean.csv',
         'ICBP': 'icbp_clean.csv',
         'INCO': 'INCO_clean.csv',
         'ISAT': 'ISAT_clean.csv',
@@ -84,10 +103,11 @@ def load_stock_data(ticker):
     }
     
     nama_file = file_mapping.get(ticker, f"{ticker}_clean.csv")
-    filepath = BASE_DIR / "Data" / nama_file # MENGGUNAKAN BASE_DIR
+    filepath = get_path("Data", nama_file) # aman untuk lokal & Streamlit Cloud
     
     try:
         df = pd.read_csv(filepath)
+        df.columns = df.columns.str.strip()
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'])
         return df
@@ -292,7 +312,7 @@ def render_header(current_page_name):
     )
 
     with col_logo:
-        logo_path = BASE_DIR / "Logo" / "Logo_RencanaKita.png"
+        logo_path = get_path("Logo", "Logo_RencanaKita.png")
 
         st.image(
             str(logo_path),
@@ -378,7 +398,7 @@ def landing_page():
             st.markdown("<h2> </h2>", unsafe_allow_html=True)
             
             def get_base64_video():
-                video_path = BASE_DIR / "Logo" / "logo.mp4"
+                video_path = get_path("Logo", "logo.mp4")
                 try:
                     with open(video_path, "rb") as file:
                         return base64.b64encode(file.read()).decode()
@@ -425,7 +445,7 @@ def education_page():
             
             # 2. Helper Function untuk Konversi Gambar ke Base64
             def get_base64_img(file_name):
-                img_path = BASE_DIR / "Logo" / file_name
+                img_path = get_path("Logo", file_name)
                 try:
                     with open(img_path, "rb") as f:
                         return base64.b64encode(f.read()).decode()
@@ -1032,14 +1052,18 @@ def forecast_page():
     
     # Simulasi prediksi harga (Random Walk / Dummy Model menggunakan keseluruhan data)
     # NANTI GANTI BARIS INI: y_fore = forecast_90_results[ticker_name]
-    model_path = BASE_DIR / "Model" / f"{ticker_name}_best_model.pkl"
+    model_path = get_path("Model", f"{ticker_name}_best_model.pkl")
 
     if not model_path.exists():
 
         st.error(f"Model tidak ditemukan: {model_path}")
         return
 
-    model = joblib.load(model_path)
+    try:
+        model = joblib.load(model_path)
+    except Exception as e:
+        st.error(f"Gagal meload model forecast: {e}")
+        st.stop()
 
     forecast_df = df_eng.copy()
 
@@ -1075,9 +1099,6 @@ def forecast_page():
             is_emas=(ticker_name=="EMAS")
         )
     
-    future_prices = [last_price * (1 + simulated_returns[0])]
-    for r in simulated_returns[1:]:
-        future_prices.append(future_prices[-1] * (1 + r))
     # -----------------------------------------------------------------------
 
     # Hubungkan titik terakhir historis dengan titik awal forecast agar garis menyambung
@@ -1171,13 +1192,13 @@ def forecast_page():
 # CLASS ENGINE ROBO ADVISOR
 # ==========================================
 class RoboAdvisorEngine:
-    def __init__(self, model_path=BASE_DIR / 'Model' / 'model_rekomendasi.joblib'): # UPDATED
+    def __init__(self, model_path=None): # UPDATED
         """
         Inisialisasi engine: Meload model ML dan menyiapkan data pasar dari CSV.
         """
         # MENGGUNAKAN BASE_DIR UNTUK MODEL PATH
         if model_path is None:
-            model_path = BASE_DIR / 'Model' / 'model_rekomendasi.joblib'
+            model_path = get_path('Model', 'model_rekomendasi.joblib')
             
         # 1. LOAD MODEL MACHINE LEARNING
         try:
@@ -1187,7 +1208,8 @@ class RoboAdvisorEngine:
             self.kmeans = model_pack['kmeans_model']
             self.features = model_pack['feature_names']
         except Exception as e:
-            st.error(f"Gagal meload model: {e}")
+            st.error(f"Gagal meload model rekomendasi: {e}")
+            st.stop()
             
         # 2. SETUP DATA PASAR & COVARIANCE MATRIX (LEDOIT-WOLF)
         self.aset_names = ['Saham', 'Emas', 'Obligasi', 'RDPU', 'Deposito']
@@ -1213,7 +1235,10 @@ class RoboAdvisorEngine:
 
         try:
 
-            data_dir = BASE_DIR / "Data"
+            data_dir = DATA_DIR
+
+            if not data_dir.exists():
+                data_dir = BASE_DIR.parent / "Data"
 
             file_mapping = {
                 'ADRO': 'ADRO_clean.csv',
