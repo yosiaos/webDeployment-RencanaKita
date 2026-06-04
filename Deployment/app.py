@@ -1133,7 +1133,7 @@ def forecast_page():
 # CLASS ENGINE ROBO ADVISOR
 # ==========================================
 class RoboAdvisorEngine:
-    def __init__(self, model_path=None): # UPDATED
+    def __init__(self, model_path=BASE_DIR / 'Model' / 'model_rekomendasi.joblib'): # UPDATED
         """
         Inisialisasi engine: Meload model ML dan menyiapkan data pasar dari CSV.
         """
@@ -1188,7 +1188,7 @@ class RoboAdvisorEngine:
                 'MYOR': 'myor_clean.csv', 'PTBA': 'PTBA_clean.csv', 'TLKM': 'tlkm_clean.csv' 
             }
             # MENGGUNAKAN BASE_DIR UNTUK MENGUNCI LOKASI FOLDER DATA
-            saham_files = [BASE_DIR / "Data" / fname for fname in file_mapping.values()] 
+            saham_files = [BASE_DIR / "Data" / fname for fname in file_mapping.values()]
             
             list_return_saham = []
             
