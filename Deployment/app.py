@@ -37,6 +37,50 @@ def get_path(folder, filename):
 
     return path
 
+
+# Mapping untuk model forecast (.pkl) sesuai nama file di folder Model
+MODEL_MAPPING = {
+    'ADRO': 'ADRO_best_model.pkl',
+    'ANTM': 'ANTM_best_model.pkl',
+    'ASII': 'ASII_best_model.pkl',
+    'BBCA': 'BBCA_best_model.pkl',
+    'BBNI': 'BBNI_best_model.pkl',
+    'BBRI': 'BBRI_best_model.pkl',
+    'BMRI': 'BMRI_best_model.pkl',
+    'CUAN': 'CUAN_best_model.pkl',
+    'EMAS': 'EMAS_best_model.pkl',
+    'ICBP': 'ICBP_best_model.pkl',
+    'INCO': 'INCO_best_model.pkl',
+    'ISAT': 'ISAT_best_model.pkl',
+    'MEDC': 'MEDC_best_model.pkl',
+    'MYOR': 'MYOR_best_model.pkl',
+    'PTBA': 'PTBA_best_model.pkl',
+    'TLKM': 'TLKM_best_model.pkl'
+}
+
+MODEL_REKOMENDASI = 'model_rekomendasi.joblib'
+
+
+# Kompatibilitas model rekomendasi yang dipickle dengan versi scikit-learn berbeda.
+# Error yang ditangani: module 'sklearn.compose._column_transformer' has no attribute '_RemainderColsList'
+def patch_sklearn_pickle_compatibility():
+    try:
+        import sklearn.compose._column_transformer as column_transformer
+
+        if not hasattr(column_transformer, '_RemainderColsList'):
+            class _RemainderColsList(list):
+                def __init__(self, columns=None, future_dtype=None, warning_was_emitted=False):
+                    super().__init__(columns or [])
+                    self.future_dtype = future_dtype
+                    self.warning_was_emitted = warning_was_emitted
+
+            column_transformer._RemainderColsList = _RemainderColsList
+    except Exception:
+        pass
+
+
+patch_sklearn_pickle_compatibility()
+
 # ==========================================
 # CORE ENGINE: CLASS & UTILITIES GLOBAL
 # ==========================================
@@ -1052,7 +1096,8 @@ def forecast_page():
     
     # Simulasi prediksi harga (Random Walk / Dummy Model menggunakan keseluruhan data)
     # NANTI GANTI BARIS INI: y_fore = forecast_90_results[ticker_name]
-    model_path = get_path("Model", f"{ticker_name}_best_model.pkl")
+    model_file = MODEL_MAPPING.get(ticker_name, f"{ticker_name}_best_model.pkl")
+    model_path = get_path("Model", model_file)
 
     if not model_path.exists():
 
@@ -1198,7 +1243,7 @@ class RoboAdvisorEngine:
         """
         # MENGGUNAKAN BASE_DIR UNTUK MODEL PATH
         if model_path is None:
-            model_path = get_path('Model', 'model_rekomendasi.joblib')
+            model_path = get_path('Model', MODEL_REKOMENDASI)
             
         # 1. LOAD MODEL MACHINE LEARNING
         try:
