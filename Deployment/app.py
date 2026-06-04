@@ -58,6 +58,43 @@ MODEL_MAPPING = {
     'TLKM': 'TLKM_best_model.pkl'
 }
 
+def get_model_features(model, df_eng):
+    if hasattr(model, "feature_names_in_"):
+        return list(model.feature_names_in_)
+
+    if hasattr(model, "feature_name_"):
+        return list(model.feature_name_)
+
+    feature_cols = [
+        col for col in df_eng.columns
+        if col not in ["Date", "Target"]
+        and pd.api.types.is_numeric_dtype(df_eng[col])
+    ]
+
+    if hasattr(model, "n_features_in_"):
+        return feature_cols[:model.n_features_in_]
+
+    return feature_cols
+
+
+def build_latest_input(latest_row, feature_cols):
+    X = pd.DataFrame(index=latest_row.index)
+
+    lower_map = {
+        col.lower(): col
+        for col in latest_row.columns
+    }
+
+    for col in feature_cols:
+        if col in latest_row.columns:
+            X[col] = latest_row[col]
+        elif col.lower() in lower_map:
+            X[col] = latest_row[lower_map[col.lower()]]
+        else:
+            X[col] = 0
+
+    return X
+
 MODEL_REKOMENDASI = 'model_rekomendasi.joblib'
 
 
@@ -1118,10 +1155,13 @@ def forecast_page():
 
         latest_row = forecast_df.iloc[-1:]
 
-        feature_cols = model.feature_names_in_
-        X = latest_row[feature_cols]
+        feature_cols = get_model_features(model, forecast_df)
+        X = build_latest_input(latest_row, feature_cols)
 
-        pred_price = model.predict(X)[0]
+        pred_price = model.predict(X)
+
+        if isinstance(pred_price, (list, np.ndarray)):
+            pred_price = np.array(pred_price).flatten()[0]
 
         future_prices.append(pred_price)
 

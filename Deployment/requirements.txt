@@ -5,5 +5,8 @@ scipy
 plotly
 joblib
 scikit-learn
-lightgbm
+tensorflow
 keras
+xgboost
+catboost
+lightgbm
