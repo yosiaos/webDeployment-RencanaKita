@@ -41,7 +41,7 @@ class BondAnalyzer:
             ytm = optimize.newton(objective_function, self.coupon_rate)
         except:
             ytm = 0.0
-        return ytm
+            return ytm
 
     def calculate_modified_duration(self, ytm):
         rate = ytm / self.frequency
@@ -79,7 +79,7 @@ def load_stock_data(ticker):
     }
     
     nama_file = file_mapping.get(ticker, f"{ticker}_clean.csv")
-    filepath = Path("Data") / nama_file
+    filepath = Path(__file__).parent / "Data" / nama_file # UPDATED PATH
     
     try:
         df = pd.read_csv(filepath)
@@ -1129,7 +1129,7 @@ def forecast_page():
 # CLASS ENGINE ROBO ADVISOR
 # ==========================================
 class RoboAdvisorEngine:
-    def __init__(self, model_path=Path('Model') / 'model_rekomendasi.joblib'):
+    def __init__(self, model_path=Path(__file__).parent / 'Model' / 'model_rekomendasi.joblib'): # UPDATED PATH
         """
         Inisialisasi engine: Meload model ML dan menyiapkan data pasar dari CSV.
         """
@@ -1179,7 +1179,7 @@ class RoboAdvisorEngine:
                 'INCO': 'INCO_clean.csv', 'ISAT': 'ISAT_clean.csv', 'MEDC': 'MEDC_clean.csv',
                 'MYOR': 'myor_clean.csv', 'PTBA': 'PTBA_clean.csv', 'TLKM': 'tlkm_clean.csv' 
             }
-            saham_files = [Path("Data") / fname for fname in file_mapping.values()]
+            saham_files = [Path(__file__).parent / "Data" / fname for fname in file_mapping.values()] # UPDATED PATH
             
             list_return_saham = []
             
@@ -1203,7 +1203,7 @@ class RoboAdvisorEngine:
             # ==========================================
             # 2. PROSES DATA EMAS 
             # ==========================================
-            df_emas = pd.read_csv(Path("Data") / 'EMAS_clean.csv') 
+            df_emas = pd.read_csv(Path(__file__).parent / "Data" / 'EMAS_clean.csv') # UPDATED PATH
             df_emas.columns = df_emas.columns.str.upper()
             df_emas['DATE'] = pd.to_datetime(df_emas['DATE'])
             df_emas = df_emas.set_index('DATE')
