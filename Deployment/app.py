@@ -1037,7 +1037,7 @@ def calculate_rsi(data, window=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-def feature_engineering(df, is_emas=False):
+def feature_engineering(df, is_emas=False, make_target=True):
     df = df.copy()
 
     # 1. Time Features
@@ -1086,13 +1086,168 @@ def feature_engineering(df, is_emas=False):
         for lag in [1, 2, 3, 5, 10, 20]:
             df[f'Lag_Vol_{lag}'] = df['Volume'].shift(lag)
 
-    # 9. Target (Harga besok)
-    df["Target"] = df["Close"].shift(-1)
+    # 9. Target hanya dibuat untuk kebutuhan training/evaluasi
+    if make_target:
+        df["Target"] = df["Close"].shift(-1)
 
     # Cleanup
     df.dropna(inplace=True)
-    return df
 
+    return df
+def get_expected_n_features(model):
+    try:
+        if hasattr(model, "n_features_in_"):
+            return int(model.n_features_in_)
+
+        if hasattr(model, "booster_"):
+            return int(model.booster_.num_feature())
+
+        if hasattr(model, "_Booster"):
+            return int(model._Booster.num_feature())
+
+        if hasattr(model, "input_shape"):
+            input_shape = model.input_shape
+
+            if isinstance(input_shape, list):
+                input_shape = input_shape[0]
+
+            if len(input_shape) == 3:
+                return int(input_shape[2])
+
+            if len(input_shape) == 2:
+                return int(input_shape[1])
+
+    except:
+        pass
+
+    return None
+
+
+def get_model_feature_cols(model, df):
+    exclude_cols = ["Date", "Target"]
+
+    numeric_cols = [
+        col for col in df.columns
+        if col not in exclude_cols
+        and pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    feature_cols = []
+
+    if hasattr(model, "feature_names_in_"):
+        feature_cols = list(model.feature_names_in_)
+
+    elif hasattr(model, "feature_name_"):
+        feature_cols = list(model.feature_name_)
+
+    elif hasattr(model, "booster_"):
+        try:
+            feature_cols = list(model.booster_.feature_name())
+        except:
+            feature_cols = []
+
+    if feature_cols:
+        clean_feature_cols = []
+
+        for col in feature_cols:
+            if col in df.columns:
+                clean_feature_cols.append(col)
+
+        if len(clean_feature_cols) > 0:
+            return clean_feature_cols
+
+    n_features = get_expected_n_features(model)
+
+    if n_features is not None:
+        return numeric_cols[:n_features]
+
+    return numeric_cols
+
+
+def build_forecast_input(model, forecast_df):
+    latest_row = forecast_df.iloc[-1:]
+
+    feature_cols = get_model_feature_cols(model, forecast_df)
+
+    n_features = get_expected_n_features(model)
+
+    # Jika feature_cols masih kosong, fallback pakai semua kolom numerik
+    if len(feature_cols) == 0:
+        feature_cols = [
+            col for col in forecast_df.columns
+            if col not in ["Date", "Target"]
+            and pd.api.types.is_numeric_dtype(forecast_df[col])
+        ]
+
+    # Jika model minta jumlah fitur tertentu, samakan jumlah fiturnya
+    if n_features is not None:
+        if len(feature_cols) > n_features:
+            feature_cols = feature_cols[:n_features]
+
+    # Case Keras / TensorFlow
+    if hasattr(model, "input_shape"):
+        input_shape = model.input_shape
+
+        if isinstance(input_shape, list):
+            input_shape = input_shape[0]
+
+        # Model LSTM / GRU / RNN biasanya butuh 3D: (batch, timestep, features)
+        if len(input_shape) == 3:
+            timesteps = input_shape[1]
+            keras_features = input_shape[2]
+
+            if timesteps is None:
+                timesteps = 1
+
+            if keras_features is None:
+                keras_features = len(feature_cols)
+
+            feature_cols = feature_cols[:keras_features]
+
+            X_seq = forecast_df[feature_cols].tail(timesteps).copy()
+
+            # Jika baris kurang dari timestep, tambahkan padding 0 di depan
+            if len(X_seq) < timesteps:
+                missing_rows = timesteps - len(X_seq)
+                padding = pd.DataFrame(
+                    np.zeros((missing_rows, len(feature_cols))),
+                    columns=feature_cols
+                )
+                X_seq = pd.concat([padding, X_seq], ignore_index=True)
+
+            X_seq = X_seq.fillna(0)
+
+            return X_seq.values.reshape(1, timesteps, len(feature_cols))
+
+        # Model ANN biasa butuh 2D: (batch, features)
+        if len(input_shape) == 2:
+            keras_features = input_shape[1]
+
+            if keras_features is not None:
+                feature_cols = feature_cols[:keras_features]
+
+            X = latest_row[feature_cols].copy()
+            X = X.fillna(0)
+
+            return X.values
+
+    # Case sklearn / lightgbm / xgboost / catboost
+    X = latest_row[feature_cols].copy()
+
+    # Kalau jumlah kolom kurang dari kebutuhan model, tambahkan kolom dummy
+    if n_features is not None and X.shape[1] < n_features:
+        kurang = n_features - X.shape[1]
+
+        for i in range(kurang):
+            X[f"dummy_feature_{i}"] = 0
+
+    # Kalau jumlah kolom lebih banyak, potong
+    if n_features is not None and X.shape[1] > n_features:
+        X = X.iloc[:, :n_features]
+
+    X = X.fillna(0)
+
+    return X
 # --- HALAMAN 3: FORECAST (UPDATED) ---
 def forecast_page():
     render_header('forecast')
@@ -1115,7 +1270,11 @@ def forecast_page():
         return
         
     # Proses Feature Engineering
-    df_eng = feature_engineering(df_raw, is_emas=(ticker_name == "EMAS"))
+    df_eng = feature_engineering(
+        df_raw,
+        is_emas=(ticker_name == "EMAS"),
+        make_target=False
+    )
     
     # Menggunakan SEMUA data historis yang tersedia (tidak dibatasi 120 hari lagi)
     hist_df = df_eng.copy()
@@ -1147,41 +1306,63 @@ def forecast_page():
         st.error(f"Gagal meload model forecast: {e}")
         st.stop()
 
-    forecast_df = df_eng.copy()
+    forecast_raw = df_raw.copy()
+    forecast_raw["Date"] = pd.to_datetime(forecast_raw["Date"])
 
     future_prices = []
 
-    for _ in range(90):
+    for i in range(90):
 
-        latest_row = forecast_df.iloc[-1:]
+        forecast_df = feature_engineering(
+            forecast_raw,
+            is_emas=(ticker_name == "EMAS"),
+            make_target=False
+        )
 
-        feature_cols = get_model_features(model, forecast_df)
-        X = build_latest_input(latest_row, feature_cols)
+        if forecast_df.empty:
+            st.error("Data forecast kosong setelah feature engineering.")
+            return
 
-        pred_price = model.predict(X)
+        X = build_forecast_input(model, forecast_df)
 
-        if isinstance(pred_price, (list, np.ndarray)):
-            pred_price = np.array(pred_price).flatten()[0]
+        if X is None:
+            st.error("Input model forecast kosong.")
+            return
+
+        # Predict untuk sklearn / LightGBM / XGBoost / CatBoost / Keras
+        try:
+            pred_price = model.predict(X)
+        except TypeError:
+            pred_price = model.predict(X, verbose=0)
+
+        pred_price = np.array(pred_price).reshape(-1)[0]
+        pred_price = float(pred_price)
 
         future_prices.append(pred_price)
 
-        next_row = latest_row.copy()
+        next_date = future_dates[i]
 
-        next_row["Close"] = pred_price
+        next_row = forecast_raw.iloc[-1:].copy()
+        next_row["Date"] = next_date
 
-        next_row["Date"] = (
-            latest_row["Date"].iloc[0]
-            + pd.Timedelta(days=1)
-        )
+        if "Open" in next_row.columns:
+            next_row["Open"] = pred_price
 
-        forecast_df = pd.concat(
-            [forecast_df, next_row],
+        if "High" in next_row.columns:
+            next_row["High"] = pred_price
+
+        if "Low" in next_row.columns:
+            next_row["Low"] = pred_price
+
+        if "Close" in next_row.columns:
+            next_row["Close"] = pred_price
+
+        if "Volume" in next_row.columns:
+            next_row["Volume"] = forecast_raw["Volume"].iloc[-1]
+
+        forecast_raw = pd.concat(
+            [forecast_raw, next_row],
             ignore_index=True
-        )
-
-        forecast_df = feature_engineering(
-            forecast_df,
-            is_emas=(ticker_name=="EMAS")
         )
     
     # -----------------------------------------------------------------------
