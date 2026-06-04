@@ -15,6 +15,10 @@ import warnings
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="RencanaKita", layout="wide", initial_sidebar_state="collapsed")
 
+# --- DEFINISI BASE DIRECTORY UTAMA ---
+# Mengunci root path agar selalu relatif terhadap lokasi app.py ini
+BASE_DIR = Path(__file__).resolve().parent
+
 # ==========================================
 # CORE ENGINE: CLASS & UTILITIES GLOBAL
 # ==========================================
@@ -41,7 +45,8 @@ class BondAnalyzer:
             ytm = optimize.newton(objective_function, self.coupon_rate)
         except:
             ytm = 0.0
-            return ytm
+        # BUG FIXED: Indentasi dikembalikan sejajar dengan try-except agar tidak me-return None
+        return ytm 
 
     def calculate_modified_duration(self, ytm):
         rate = ytm / self.frequency
@@ -79,7 +84,7 @@ def load_stock_data(ticker):
     }
     
     nama_file = file_mapping.get(ticker, f"{ticker}_clean.csv")
-    filepath = Path(__file__).parent / "Data" / nama_file # UPDATED PATH
+    filepath = BASE_DIR / "Data" / nama_file # MENGGUNAKAN BASE_DIR
     
     try:
         df = pd.read_csv(filepath)
@@ -287,7 +292,7 @@ def render_header(current_page_name):
     )
 
     with col_logo:
-        logo_path = Path(__file__).parent / "Logo" / "Logo_RencanaKita.png"
+        logo_path = BASE_DIR / "Logo" / "Logo_RencanaKita.png"
 
         st.image(
             str(logo_path),
@@ -373,8 +378,7 @@ def landing_page():
             st.markdown("<h2> </h2>", unsafe_allow_html=True)
             
             def get_base64_video():
-                current_dir = Path(__file__).parent
-                video_path = current_dir / "Logo" / "logo.mp4"
+                video_path = BASE_DIR / "Logo" / "logo.mp4"
                 try:
                     with open(video_path, "rb") as file:
                         return base64.b64encode(file.read()).decode()
@@ -421,7 +425,7 @@ def education_page():
             
             # 2. Helper Function untuk Konversi Gambar ke Base64
             def get_base64_img(file_name):
-                img_path = Path(__file__).parent / "Logo" / file_name
+                img_path = BASE_DIR / "Logo" / file_name
                 try:
                     with open(img_path, "rb") as f:
                         return base64.b64encode(f.read()).decode()
@@ -1129,10 +1133,14 @@ def forecast_page():
 # CLASS ENGINE ROBO ADVISOR
 # ==========================================
 class RoboAdvisorEngine:
-    def __init__(self, model_path=Path(__file__).parent / 'Model' / 'model_rekomendasi.joblib'): # UPDATED PATH
+    def __init__(self, model_path=None): # UPDATED
         """
         Inisialisasi engine: Meload model ML dan menyiapkan data pasar dari CSV.
         """
+        # MENGGUNAKAN BASE_DIR UNTUK MODEL PATH
+        if model_path is None:
+            model_path = BASE_DIR / 'Model' / 'model_rekomendasi.joblib'
+            
         # 1. LOAD MODEL MACHINE LEARNING
         try:
             model_pack = joblib.load(model_path)
@@ -1179,7 +1187,8 @@ class RoboAdvisorEngine:
                 'INCO': 'INCO_clean.csv', 'ISAT': 'ISAT_clean.csv', 'MEDC': 'MEDC_clean.csv',
                 'MYOR': 'myor_clean.csv', 'PTBA': 'PTBA_clean.csv', 'TLKM': 'tlkm_clean.csv' 
             }
-            saham_files = [Path(__file__).parent / "Data" / fname for fname in file_mapping.values()] # UPDATED PATH
+            # MENGGUNAKAN BASE_DIR UNTUK MENGUNCI LOKASI FOLDER DATA
+            saham_files = [BASE_DIR / "Data" / fname for fname in file_mapping.values()] 
             
             list_return_saham = []
             
@@ -1203,7 +1212,7 @@ class RoboAdvisorEngine:
             # ==========================================
             # 2. PROSES DATA EMAS 
             # ==========================================
-            df_emas = pd.read_csv(Path(__file__).parent / "Data" / 'EMAS_clean.csv') # UPDATED PATH
+            df_emas = pd.read_csv(BASE_DIR / "Data" / 'EMAS_clean.csv') # MENGGUNAKAN BASE_DIR
             df_emas.columns = df_emas.columns.str.upper()
             df_emas['DATE'] = pd.to_datetime(df_emas['DATE'])
             df_emas = df_emas.set_index('DATE')
@@ -1362,6 +1371,7 @@ def recommendation_page():
             c1, c2 = st.columns(2)
             c1.metric(label="Proyeksi Return (Tahunan)", value=f"{res['Proyeksi_Return_Tahunan']}%")
             c2.metric(label="Proyeksi Risiko (Volatilitas)", value=f"{res['Proyeksi_Risiko']}%")
+            
 # --- ROUTER UTAMA ---
 if st.session_state.current_page == 'landing':
     landing_page()
